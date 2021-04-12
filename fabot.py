@@ -3,13 +3,14 @@ from discord.ext import commands, tasks
 from discord.utils import get
 from datetime import datetime
 from googletrans import Translator
-from youtube_search import YoutubeSearch
-import youtube_dl
 import os
-from random import random, randrange
+import youtube_dl
+import asyncio
+import random as rand
+import key
 bot = commands.Bot(command_prefix = '!fm ')
 bot.owner_id=5203
-
+YDL_OPTIONS = {'format': 'bestaudio', 'default_search': 'ytsearch','outtmpl': 'songs/song.mp3', 'noplaylist':'True'}
 @bot.event
 async def on_ready():
 	print('Logeado como {0.user}'.format(bot))
@@ -21,6 +22,7 @@ async def invocar(ctx):
 @bot.command()
 async def roll(ctx):
     await ctx.send(randrange(100))
+#Elige una respuesta aleatoria, TODO: enviar un mensaje personalizado a partir de la pregunta
 @bot.command()
 async def ouija(ctx,*,pregunta):
     respuesta=["Probablemente","Todo apunta a que sí","Sin duda","Sí","Sí - definitivamente","Pregunta en otro momento","Será mejor que no te lo diga ahora","No cuentes con ello",
@@ -28,7 +30,7 @@ async def ouija(ctx,*,pregunta):
     "Mis fuentes me dicen que no",
     "No",
     "No lo creo"]
-    await ctx.send(random.choice(respuesta))
+    await ctx.send(rand.choice(respuesta))
 @bot.command()
 async def ping(ctx):
     await ctx.send(round(bot.latency*1000))
@@ -38,117 +40,102 @@ async def hora(ctx):
     current_time = now.strftime("%H:%M:%S")
     await ctx.send(current_time)
 
-
+#Entra al canal de voz TODO: hacer que play haga esto
 @bot.command()
 async def join(ctx):
+    print("called")   
     channel= ctx.author.voice.channel
     voice=ctx.voice_client
     if voice is not None:
         return await voice.move_to(channel)
     await channel.connect()
+#Para la reproduccion de audio
 @bot.command()
-async def play(ctx, *,urlname: str):
-    urlresult=YoutubeSearch(urlname, max_results=1).to_dict()
-    print(urlresult)
-    urlresult=urlresult[0]
-    id,titulo = urlresult["id"],urlresult["title"]
-    print(id,titulo)
-    url="https://www.youtube.com/watch?v="+id
-    print(url)
-    channel= ctx.author.voice.channel
-    song_there = os.path.isfile("song.mp3")
-    try:
-        if song_there:
-            os.remove("song.mp3")
-    except PermissionError:
-        return
-
+async def stop(ctx):
+        voice=ctx.voice_client
+        if voice.is_playing():
+                voice.stop()
+#Pausa el audio
+@bot.command()
+async def pause(ctx):
+        voice=ctx.voice_client
+        if voice.is_playing():
+                voice.pause()
+@bot.command()
+async def resume(ctx):
+        voice=ctx.voice_client
+        if voice.is_paused():
+                voice.resume()
+#Busca y descarga audio desde un video en youtube
+@bot.command()
+async def play(ctx,*,name):
     await ctx.send("Cargando")
-
     voice=ctx.voice_client
-
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-    }
-
-    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-        print("Descargando audio\n")
-        ydl.download([url])
-
-    for file in os.listdir("./"):
-        if file.endswith(".mp3"):
-            name = file
-            print(f"Renamed File: {file}\n")
-            os.rename(file, "song.mp3")
-    voice.play(discord.FFmpegPCMAudio('song.mp3'), after=lambda e: terminada(ctx))
-    await ctx.send(f"Ahora Tocando: {titulo}")
+    if voice.is_playing():
+            ctx.send("Espera a que termine la cancion!")
+            return
+    with youtube_dl.YoutubeDL(YDL_OPTIONS) as ydl:
+            info = ydl.extract_info(name, download=False)
+            entries= info.get('entries')[0]
+            title=entries.get('title')
+            ydl.download([name])
+            await ctx.send("Ahora tocando: " + title)
+    voice.play(discord.FFmpegPCMAudio('songs/song.mp3'),after=terminada)
     print("Tocando\n")
-async def terminada(ctx):
-    await ctx.send("Cancion Terminada!")
+@bot.command()
+async def op(ctx):
+    channel= ctx.author.voice.channel
+    await ctx.send("Cargando")
+    voice=ctx.voice_client
+    if voice is None:
+        await channel.connect()
+        voice=ctx.voice_client
+    directory=f'canciones/{randrange(18)}.mp3'
+    isplaying=True
+    voice.play(discord.FFmpegPCMAudio(directory),after= terminada)
+    print("Tocando\n")
+@bot.command()
+async def oploop(ctx):
+    channel= ctx.author.voice.channel
+    await ctx.send("Cargando")
+    voice=ctx.voice_client
+    if voice is None:
+        await channel.connect()
+        voice=ctx.voice_client
+    canciones=list(range(1, 19))
+    print(canciones)
+    while(len(canciones)!=0):
+            print(canciones)
+            randomN=rand.choice(canciones)
+            directory=f'canciones/{randomN}.mp3'
+            isplaying=True
+            canciones.remove(randomN)
+            voice.play(discord.FFmpegPCMAudio(directory))
+            await asyncio.sleep(106)
+    print("Terminado\n")
+#Envia un mensaje al chat, TODO: enviar al canal correspondiente de ka fuente de audio
+def terminada(err):
+        channel=bot.get_channel(728396177048993833)
+        coro=channel.send("Ok!")
+        fut = asyncio.run_coroutine_threadsafe(coro, bot.loop)
+        os.remove("songs/song.mp3")
+        try:
+                fut.result()
+        except:
+                print("Sadge" + err)
+                pass
 @bot.command()
 async def autor(ctx):
     await ctx.send("@"+str(bot.owner_id))
-def calcularganador(board):
-    boardtemplate=[
-    [0, 1, 2],
-    [3, 4, 5],
-    [6, 7, 8],
-    [0, 3, 6],
-    [1, 4, 7],
-    [2, 5, 8],
-    [0, 4, 8],
-    [2, 4, 6]]
-    for i in range(0,8):
-        [a,b,c]=boardtemplate[i]
-        if board[a] and board[a] == board[b] and board[a] == board[c]:
-            return True
-    return False
-
-@bot.command()
-async def gato(ctx):
-    await ctx.send("MIAU")
-    board=["  ","  ","  ","  ","  ","  ","  ","  ","  "]
-    player=0
-    mvments=[]
-    await ctx.send("|----|----|----\n|----|----|----\n|----|----|----")
-    winner=False
-    while(winner==False):
-        for i in range(0,9):
-            if board[i] == "":
-                mvments.append(i)
-        await ctx.send(board[0]+board[1]+board[2]+"\n "+board[3]+board[4]+board[5]+"\n"+
-        board[6]+board[7]+board[8]+"\n"+
-        "\nLos movientos disponibles son" + str(mvments))
-        response = await bot.wait_for('message')
-        num = int(response.content)
-        while(num not in mvments):
-            await ctx.send("Opcion invalida")
-            response = await bot.wait_for('message')
-            num = int(response.content)
-        if player==0:
-            board[num]="0"
-        else:
-            board[num]="X"
-        player=1
-        mvments=[]
-        winner=calcularganador(board)
-        if len(mvments)==0:
-            winner=True
-            await ctx.send("Empate")
-        
+#dado lenguaje y texto traduce el texto al lenguaje del inputs
 @bot.command()
 async def traductor(ctx,lang,string):
     translator = Translator()
     k=translator.translate(string,dest=lang)
     await ctx.send(k.text)
 @bot.command()
-
+#"Apagar" bot
 @commands.is_owner()
 async def shutdown(ctx):
     await ctx.bot.logout()
-bot.run('NzI5ODcxMzIxMDcyMjcxMzgx.XwPP6g.x_VWQUGeTGSrlpZbPgWA9D8N2-s')
+bot.run(key.token)
